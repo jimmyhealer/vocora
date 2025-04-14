@@ -1,6 +1,6 @@
 import asyncio
 import os
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from contextlib import AsyncExitStack
 import json
 
@@ -66,22 +66,24 @@ class MCPClient:
             print(f"Error connecting to MCP server: {e}")
             raise
 
-    async def process_conversation(self, messages: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    async def analyze_conversation(self, messages: List[Dict[str, Any]]) -> Tuple[bool, Optional[Dict[str, Any]]]:
         """
-        Process a conversation history using the LLM and potentially call MCP tools.
-
+        Analyze a conversation to determine if a tool call should be made, but don't execute it.
+        
         Args:
             messages: A list of message objects compatible with the OpenAI API format.
-
+            
         Returns:
-            A dictionary containing the tool call result if a tool was called, otherwise None.
+            Tuple containing:
+            - bool: Whether a tool call was suggested
+            - Optional[Dict]: Tool call information if suggested, otherwise None
         """
         if not self.session:
             print("Error: MCPClient is not connected to the server.")
-            return None
+            return False, None
         if not self.available_tools_schema:
             print("Error: No tools available from the MCP server.")
-            return None
+            return False, None
 
         try:
             # Add a system prompt to guide the LLM
@@ -93,13 +95,12 @@ class MCPClient:
             Only call the tool if you are confident an issue is warranted. Include relevant details
             from the conversation in the issue title, body and labels. Ensure the owner and repo are correct.
             If no issue is needed, do not call any tools.
+            Ensure the issue language is in English.
             The target repository owner is 'jimmyhealer' and the repo is 'vocora'.
             """
             processed_messages = [{"role": "system", "content": system_prompt}] + messages
 
             print(f"Sending conversation to LLM ({self.model_name}):")
-            # for msg in processed_messages:
-            #     print(f"- {msg['role']}: {msg['content']}") # Debugging message content
 
             chat_completion = self.openai_client.chat.completions.create(
                 model=self.model_name,
@@ -112,53 +113,78 @@ class MCPClient:
 
             # Check if the LLM decided to call a tool
             if response_message.tool_calls:
-                print("LLM requested tool call:")
-                for tool_call in response_message.tool_calls:
-                    function_name = tool_call.function.name
-                    function_args = json.loads(tool_call.function.arguments)
+                print("LLM suggested tool call:")
+                tool_call = response_message.tool_calls[0]  # Get the first tool call
+                function_name = tool_call.function.name
+                function_args = json.loads(tool_call.function.arguments)
 
-                    # Ensure owner and repo are set, potentially overriding LLM's choice if needed
-                    # Or add them if missing, based on the system prompt guidance
-                    if 'owner' not in function_args:
-                         function_args['owner'] = 'jimmyhealer' # Default owner
-                         print(f"Injecting default owner: 'jimmyhealer'")
-                    if 'repo' not in function_args:
-                         function_args['repo'] = 'vocora' # Default repo
-                         print(f"Injecting default repo: 'vocora'")
+                # Ensure owner and repo are set, potentially overriding LLM's choice if needed
+                if 'owner' not in function_args:
+                    function_args['owner'] = 'jimmyhealer'  # Default owner
+                    print(f"Injecting default owner: 'jimmyhealer'")
+                if 'repo' not in function_args:
+                    function_args['repo'] = 'vocora'  # Default repo
+                    print(f"Injecting default repo: 'vocora'")
 
-
-                    print(f"- Tool: {function_name}")
-                    print(f"- Arguments: {function_args}")
-
-                    # --- Execute the tool call via MCP ---
-                    try:
-                        print(f"Executing tool '{function_name}' via MCP server...")
-                        result = await self.session.call_tool(function_name, function_args)
-                        print(f"Tool '{function_name}' executed successfully.")
-                        # Assuming the result.content contains the issue URL or relevant info
-                        # The official github-mcp-server likely returns structured data.
-                        # We might need to parse result.content based on its actual structure.
-                        print(f"Tool Result Content: {result.content}")
-                        return {
-                            "tool_name": function_name,
-                            "arguments": function_args,
-                            "result": result.content # Pass the raw result back
-                        }
-                    except Exception as e:
-                        print(f"Error calling tool '{function_name}' via MCP: {e}")
-                        return { # Return error information
-                             "tool_name": function_name,
-                             "arguments": function_args,
-                             "error": str(e)
-                         }
+                print(f"- Tool: {function_name}")
+                print(f"- Arguments: {function_args}")
+                
+                # Return suggested tool call but don't execute it
+                return True, {
+                    "tool_name": function_name,
+                    "arguments": function_args,
+                }
             else:
                 print("LLM decided no tool call is needed.")
-                # print(f"LLM Response Text: {response_message.content}") # Log LLM's reasoning if needed
-                return None
+                return False, None
 
         except Exception as e:
-            print(f"Error during LLM interaction or tool processing: {e}")
-            return None # Indicate an error occurred
+            print(f"Error during LLM interaction: {e}")
+            return False, None
+            
+    async def execute_tool_call(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute a tool call with the given arguments.
+        
+        Args:
+            tool_name: The name of the tool to call
+            arguments: The arguments to pass to the tool
+            
+        Returns:
+            Dict containing either the result or error information
+        """
+        if not self.session:
+            return {"error": "MCPClient is not connected to the server."}
+            
+        try:
+            print(f"Executing tool '{tool_name}' via MCP server...")
+            result = await self.session.call_tool(tool_name, arguments)
+            print(f"Tool '{tool_name}' executed successfully.")
+            print(f"Tool Result Content: {result.content}")
+            return {
+                "tool_name": tool_name,
+                "arguments": arguments,
+                "result": result.content
+            }
+        except Exception as e:
+            print(f"Error calling tool '{tool_name}' via MCP: {e}")
+            return {
+                "tool_name": tool_name,
+                "arguments": arguments,
+                "error": str(e)
+            }
+
+    async def process_conversation(self, messages: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """
+        Legacy method for backward compatibility.
+        Processes a conversation and executes any tool calls immediately.
+        
+        DEPRECATED: Use analyze_conversation and execute_tool_call instead.
+        """
+        suggested, tool_info = await self.analyze_conversation(messages)
+        if suggested and tool_info:
+            return await self.execute_tool_call(tool_info["tool_name"], tool_info["arguments"])
+        return None
 
     async def cleanup(self):
         """Clean up resources."""
@@ -182,15 +208,21 @@ async def _test_mcp_client():
             {"role": "user", "content": "We should probably track this."},
         ]
 
-        result = await client.process_conversation(test_messages)
-
-        if result and 'error' not in result:
-            print(f"Test successful: Tool '{result['tool_name']}' called.")
-            print(f"Result Content: {result['result']}")
-        elif result and 'error' in result:
-             print(f"Test Info: Tool '{result['tool_name']}' call failed with error: {result['error']}")
+        suggested, tool_info = await client.analyze_conversation(test_messages)
+        
+        if suggested and tool_info:
+            print(f"Test successful: Tool '{tool_info['tool_name']}' suggested.")
+            print(f"Arguments: {tool_info['arguments']}")
+            
+            # Example of executing the suggested tool call
+            result = await client.execute_tool_call(tool_info["tool_name"], tool_info["arguments"])
+            if 'error' not in result:
+                print(f"Tool execution successful.")
+                print(f"Result Content: {result['result']}")
+            else:
+                print(f"Tool execution failed with error: {result['error']}")
         else:
-            print("Test Info: No tool call was made by the LLM.")
+            print("Test Info: No tool call was suggested by the LLM.")
 
     except Exception as e:
          print(f"Test failed with exception: {e}")
