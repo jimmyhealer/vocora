@@ -14,7 +14,7 @@ load_dotenv()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # Using Quasar Alpha as specified in requirements.md
-LLM_MODEL = "openrouter/optimus-alpha"
+LLM_MODEL = "openai/gpt-4.1"
 
 class MCPClient:
     def __init__(self):

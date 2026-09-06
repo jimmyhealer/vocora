@@ -53,9 +53,11 @@ pip install -r requirements.txt
 Create a `.env` file and fill in the following information:
 
 ```env
+TARGET_REPO_OWNER=your_GitHub_Repo_Owner
+TARGET_REPO_NAME=your_GitHub_Repo_Name
 DISCORD_TOKEN=your_Discord_Bot_Token
 OPENROUTER_API_KEY=your_OpenRouter_API_Key
-MCP_GITHUB_SERVER_PATH=GitHub_MCP_Tool_Server_path
+GITHUB_PERSONAL_ACCESS_TOKEN=your_GitHub_Personal_Access_Token
 ```
 
 4. **Configure Discord Bot Permissions**
@@ -120,10 +122,6 @@ Adjustable settings in the `bot.py` file:
 ```python
 # Time range for collecting message history
 MESSAGE_HISTORY_DURATION = timedelta(minutes=10)
-
-# Target GitHub repository
-TARGET_REPO_OWNER = "jimmyhealer"
-TARGET_REPO_NAME = "vocora"
 
 # Automatic issue detection (can be toggled with /autodetect command)
 AUTO_DETECTION_ENABLED = True

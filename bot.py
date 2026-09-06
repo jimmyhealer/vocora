@@ -17,8 +17,8 @@ if not DISCORD_TOKEN:
 
 # --- Configuration ---
 MESSAGE_HISTORY_DURATION = timedelta(minutes=10) # Collect messages from the last 10 minutes
-TARGET_REPO_OWNER = "jimmyhealer"
-TARGET_REPO_NAME = "vocora"
+TARGET_REPO_OWNER = os.getenv("TARGET_REPO_OWNER", "vocora") # Default to vocora if not set
+TARGET_REPO_NAME = os.getenv("TARGET_REPO_NAME", "vocora") # Default to vocora if not set
 AUTO_DETECTION_ENABLED = False # Whether automatic issue detection is enabled
 DEFAULT_ISSUE_LABELS = ["from-discord"]  # Default labels for created issues
 # --- End Configuration ---
